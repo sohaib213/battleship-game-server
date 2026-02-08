@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Battleship WebSocket Test</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  </head>
+  <body>
+    <h1>Battleship WebSocket Test</h1>
+
+    <div>
+      <label for="jwtInput">Enter JWT Token:</label>
+      <input type="text" id="jwtInput" size="80" placeholder="Paste JWT here" />
+      <button id="connectBtn">Connect</button>
+      <button id="joinGameBtn">Join Game</button>
+    </div>
+
+    <div>
+      <button id="moveBtn">Send Random Move</button>
+    </div>
+
+    <pre id="log"></pre>
+
+    <script>
+      let socket;
+      let currentGameId = null;
+      const logEl = document.getElementById('log');
+
+      function log(msg) {
+        console.log(msg);
+        logEl.textContent += msg + '\n';
+      }
+
+      // Connect with JWT
+      document.getElementById('connectBtn').addEventListener('click', () => {
+        const token = document.getElementById('jwtInput').value.trim();
+        if (!token) {
+          alert('Please enter a JWT token');
+          return;
+        }
+
+        socket = io('http://localhost:3000', {
+          auth: { token },
+          transports: ['websocket', 'polling'],
+        });
+
+        socket.on('connect', () => log('✅ Connected to server: ' + socket.id));
+        socket.on('disconnect', () => log('❌ Disconnected from server'));
+        socket.on('game_ready', (gameId) => {
+          currentGameId = gameId || currentGameId;
+          log('🎮 Game is ready! Game ID: ' + currentGameId);
+        });
+        socket.on('error', (message) => {
+          log('❌ ' + message);
+        });
+      });
+
+      // Join game
+      document.getElementById('joinGameBtn').addEventListener('click', () => {
+        if (!socket || !socket.connected) {
+          alert('⚠️ Not connected!');
+          return;
+        }
+
+        log('🟢 Sending join_game');
+        socket.emit('join_game');
+      });
+    </script>
+  </body>
+</html>
