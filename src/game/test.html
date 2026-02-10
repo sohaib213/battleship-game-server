@@ -2,69 +2,1157 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Battleship WebSocket Test</title>
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  </head>
-  <body>
-    <h1>Battleship WebSocket Test</h1>
-
-    <div>
-      <label for="jwtInput">Enter JWT Token:</label>
-      <input type="text" id="jwtInput" size="80" placeholder="Paste JWT here" />
-      <button id="connectBtn">Connect</button>
-      <button id="joinGameBtn">Join Game</button>
-    </div>
-
-    <div>
-      <button id="moveBtn">Send Random Move</button>
-    </div>
-
-    <pre id="log"></pre>
-
-    <script>
-      let socket;
-      let currentGameId = null;
-      const logEl = document.getElementById('log');
-
-      function log(msg) {
-        console.log(msg);
-        logEl.textContent += msg + '\n';
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
       }
 
-      // Connect with JWT
-      document.getElementById('connectBtn').addEventListener('click', () => {
-        const token = document.getElementById('jwtInput').value.trim();
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+      }
+
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px;
+        text-align: center;
+      }
+
+      .header h1 {
+        font-size: 2.5em;
+        margin-bottom: 10px;
+      }
+
+      .content {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        padding: 30px;
+      }
+
+      .panel {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        border: 2px solid #e9ecef;
+      }
+
+      .panel h2 {
+        color: #667eea;
+        margin-bottom: 15px;
+        font-size: 1.5em;
+        border-bottom: 2px solid #667eea;
+        padding-bottom: 10px;
+      }
+
+      .form-group {
+        margin-bottom: 15px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 600;
+        color: #495057;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        padding: 10px;
+        border: 2px solid #dee2e6;
+        border-radius: 5px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+      }
+
+      input:focus,
+      select:focus,
+      textarea:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+
+      button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 12px 25px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
+        width: 100%;
+        margin-top: 10px;
+      }
+
+      button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+      }
+
+      button:active {
+        transform: translateY(0);
+      }
+
+      button:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      button#confirmShipsBtn:not(:disabled) {
+        background: linear-gradient(135deg, #51cf66 0%, #37b24d 100%);
+      }
+
+      button#confirmShipsBtn:not(:disabled):hover {
+        box-shadow: 0 5px 15px rgba(81, 207, 102, 0.4);
+      }
+
+      button#leaveGameBtn:not(:disabled):hover {
+        box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
+      }
+
+      .status {
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+        font-weight: 600;
+      }
+
+      .status.disconnected {
+        background: #f8d7da;
+        color: #721c24;
+        border: 2px solid #f5c6cb;
+      }
+
+      .status.connected {
+        background: #d4edda;
+        color: #155724;
+        border: 2px solid #c3e6cb;
+      }
+
+      .status.waiting {
+        background: #fff3cd;
+        color: #856404;
+        border: 2px solid #ffeaa7;
+      }
+
+      .status.ready {
+        background: #d1ecf1;
+        color: #0c5460;
+        border: 2px solid #bee5eb;
+      }
+
+      .status.finished {
+        background: #e2e3e5;
+        color: #383d41;
+        border: 2px solid #d6d8db;
+      }
+
+      #logs {
+        background: #212529;
+        color: #00ff00;
+        padding: 15px;
+        border-radius: 5px;
+        height: 400px;
+        overflow-y: auto;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .log-entry {
+        margin-bottom: 5px;
+      }
+
+      .log-entry.error {
+        color: #ff6b6b;
+      }
+
+      .log-entry.success {
+        color: #51cf66;
+      }
+
+      .log-entry.info {
+        color: #74c0fc;
+      }
+
+      .log-entry.warning {
+        color: #ffd93d;
+      }
+
+      .board {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 2px;
+        margin-top: 15px;
+        background: #dee2e6;
+        padding: 5px;
+        border-radius: 5px;
+        max-width: 300px;
+      }
+
+      .cell {
+        aspect-ratio: 1;
+        background: #e9ecef;
+        border: 1px solid #adb5bd;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      .cell:hover {
+        background: #ced4da;
+      }
+
+      .cell.ship {
+        background: #667eea;
+      }
+
+      .cell.hit {
+        background: #ff6b6b;
+      }
+
+      .cell.miss {
+        background: #74c0fc;
+      }
+
+      .cell.fired {
+        background: #adb5bd;
+        cursor: not-allowed;
+      }
+
+      .cell.sunk {
+        background: #ff6b6b;
+        position: relative;
+      }
+
+      .cell.sunk::after {
+        content: '💥';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 20px;
+      }
+
+      #turnIndicator.your-turn {
+        background: #d4edda;
+        color: #155724;
+        border: 2px solid #c3e6cb;
+      }
+
+      #turnIndicator.opponent-turn {
+        background: #f8d7da;
+        color: #721c24;
+        border: 2px solid #f5c6cb;
+      }
+
+      .info-box {
+        background: white;
+        padding: 15px;
+        border-radius: 5px;
+        margin-top: 15px;
+        border-left: 4px solid #667eea;
+      }
+
+      .info-box p {
+        margin: 5px 0;
+        color: #495057;
+      }
+
+      .info-box strong {
+        color: #667eea;
+      }
+
+      .full-width {
+        grid-column: 1 / -1;
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        margin-top: 15px;
+      }
+
+      .user-badge {
+        display: inline-block;
+        background: #667eea;
+        color: white;
+        padding: 5px 10px;
+        border-radius: 15px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-top: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🚢 Battleship WebSocket Tester</h1>
+        <p>Test your NestJS WebSocket game server</p>
+      </div>
+
+      <div class="content">
+        <!-- Connection Panel -->
+        <div class="panel">
+          <h2>🔌 Connection</h2>
+
+          <div id="connectionStatus" class="status disconnected">
+            ⚫ Disconnected
+          </div>
+
+          <div class="form-group">
+            <label for="serverUrl">Server URL:</label>
+            <input
+              type="text"
+              id="serverUrl"
+              value="http://localhost:3000"
+              placeholder="http://localhost:3000"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="authToken">JWT Token:</label>
+            <textarea
+              id="authToken"
+              rows="3"
+              placeholder="Paste your JWT token here"
+            ></textarea>
+            <small style="color: #6c757d"
+              >Get this from your /auth/login endpoint</small
+            >
+          </div>
+
+          <button id="connectBtn" onclick="connect()">Connect</button>
+          <button id="disconnectBtn" onclick="disconnect()" disabled>
+            Disconnect
+          </button>
+
+          <div class="info-box" id="userInfo" style="display: none">
+            <p><strong>User ID:</strong> <span id="userId">-</span></p>
+            <p><strong>Username:</strong> <span id="username">-</span></p>
+            <p><strong>Game ID:</strong> <span id="gameId">-</span></p>
+            <p><strong>Game Status:</strong> <span id="gameStatus">-</span></p>
+          </div>
+        </div>
+
+        <!-- Game Actions Panel -->
+        <div class="panel">
+          <h2>🎮 Game Actions</h2>
+
+          <button id="joinGameBtn" onclick="joinGame()" disabled>
+            Join Game Queue
+          </button>
+
+          <button id="placeShipsBtn" onclick="placeShips()" disabled>
+            Place Ships (Random)
+          </button>
+
+          <button id="confirmShipsBtn" onclick="confirmShips()" disabled>
+            ✓ Confirm Ship Placement
+          </button>
+
+          <button
+            id="leaveGameBtn"
+            onclick="leaveGame()"
+            disabled
+            style="
+              background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+            "
+          >
+            🚪 Leave Game
+          </button>
+
+          <div id="placementSection" style="display: none">
+            <h3 style="margin-top: 20px; color: #667eea">Your Board</h3>
+            <div class="board" id="board"></div>
+
+            <div
+              id="shipInfo"
+              style="margin-top: 15px; font-size: 14px; color: #495057"
+            >
+              <p>
+                <strong>Ships Placed:</strong>
+                <span id="shipCounter" style="color: #667eea; font-weight: bold"
+                  >0 / 10</span
+                >
+              </p>
+              <p style="font-size: 12px; color: #6c757d">
+                Click cells to place/remove ships
+              </p>
+            </div>
+          </div>
+
+          <div id="battleSection" style="display: none">
+            <div
+              id="turnIndicator"
+              style="
+                margin: 15px 0;
+                padding: 15px;
+                border-radius: 5px;
+                font-weight: bold;
+                text-align: center;
+              "
+            ></div>
+
+            <div
+              style="
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                margin-top: 20px;
+              "
+            >
+              <div>
+                <h3 style="color: #667eea; margin-bottom: 10px">Your Board</h3>
+                <div class="board" id="playerBoard"></div>
+                <div
+                  id="playerScore"
+                  style="
+                    margin-top: 10px;
+                    font-size: 14px;
+                    font-weight: bold;
+                    color: #667eea;
+                  "
+                >
+                  Ships Remaining: <span id="playerShipsRemaining">10</span>/10
+                </div>
+              </div>
+              <div>
+                <h3 style="color: #764ba2; margin-bottom: 10px">Enemy Board</h3>
+                <div class="board" id="opponentBoard"></div>
+                <div
+                  id="opponentScore"
+                  style="
+                    margin-top: 10px;
+                    font-size: 14px;
+                    font-weight: bold;
+                    color: #764ba2;
+                  "
+                >
+                  Enemy Ships Sunk: <span id="enemyShipsSunk">0</span>/10
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Event Logs -->
+        <div class="panel full-width">
+          <h2>📋 Event Logs</h2>
+          <button
+            onclick="clearLogs()"
+            style="width: auto; padding: 8px 15px; margin-bottom: 10px"
+          >
+            Clear Logs
+          </button>
+          <div id="logs"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let socket = null;
+      let board = Array(5)
+        .fill(null)
+        .map(() => Array(5).fill(false));
+      let opponentBoard = Array(5)
+        .fill(null)
+        .map(() => Array(5).fill(null)); // null = unknown, 'hit' = hit, 'miss' = miss
+      let myBoardHits = Array(5)
+        .fill(null)
+        .map(() => Array(5).fill(null)); // Track hits on my board: null = untouched, 'hit' = enemy hit, 'miss' = enemy miss
+      let shipCount = 0;
+      let myUserId = null;
+      let currentTurn = null;
+      const MAX_SHIPS = 10;
+      let shipsConfirmed = false;
+      let gamePhase = 'not_started'; // not_started, placement, battle, finished
+
+      // Initialize board UI
+      function initializeBoard() {
+        const boardElement = document.getElementById('board');
+        boardElement.innerHTML = '';
+
+        for (let i = 0; i < 5; i++) {
+          for (let j = 0; j < 5; j++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            cell.dataset.row = i;
+            cell.dataset.col = j;
+            cell.onclick = () => toggleCell(i, j);
+            boardElement.appendChild(cell);
+          }
+        }
+        updateShipCounter();
+      }
+
+      function initializePlayerBoard() {
+        const boardElement = document.getElementById('playerBoard');
+        boardElement.innerHTML = '';
+
+        for (let i = 0; i < 5; i++) {
+          for (let j = 0; j < 5; j++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            cell.dataset.row = i;
+            cell.dataset.col = j;
+
+            // Show my ships
+            if (board[i][j]) {
+              cell.classList.add('ship');
+            }
+
+            // Show enemy hits/misses on my board
+            if (myBoardHits[i][j] === 'hit') {
+              cell.classList.add('sunk');
+            } else if (myBoardHits[i][j] === 'miss') {
+              cell.classList.add('miss');
+            }
+
+            boardElement.appendChild(cell);
+          }
+        }
+      }
+
+      function initializeOpponentBoard() {
+        const boardElement = document.getElementById('opponentBoard');
+        boardElement.innerHTML = '';
+
+        for (let i = 0; i < 5; i++) {
+          for (let j = 0; j < 5; j++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            cell.dataset.row = i;
+            cell.dataset.col = j;
+            cell.onclick = () => fireAtCell(i, j);
+            boardElement.appendChild(cell);
+          }
+        }
+      }
+
+      function fireAtCell(row, col) {
+        if (gamePhase !== 'battle') {
+          log('⚠️ Game has not started yet', 'warning');
+          return;
+        }
+
+        if (currentTurn !== myUserId) {
+          log('⚠️ Not your turn!', 'warning');
+          return;
+        }
+
+        if (opponentBoard[row][col] !== null) {
+          log('⚠️ Already fired at this position', 'warning');
+          return;
+        }
+
+        log(`🎯 Firing at position (${row}, ${col})...`, 'info');
+        socket.emit('fire', { x: row, y: col });
+      }
+
+      function updateOpponentBoard() {
+        const cells = document.querySelectorAll('#opponentBoard .cell');
+        cells.forEach((cell) => {
+          const row = parseInt(cell.dataset.row);
+          const col = parseInt(cell.dataset.col);
+          const state = opponentBoard[row][col];
+
+          cell.classList.remove('hit', 'miss', 'fired');
+
+          if (state === 'hit') {
+            cell.classList.add('sunk');
+          } else if (state === 'miss') {
+            cell.classList.add('miss');
+          } else if (state === 'fired') {
+            cell.classList.add('fired');
+          }
+        });
+
+        updateScores();
+      }
+
+      function updatePlayerBoardWithHits() {
+        const cells = document.querySelectorAll('#playerBoard .cell');
+        cells.forEach((cell) => {
+          const row = parseInt(cell.dataset.row);
+          const col = parseInt(cell.dataset.col);
+
+          // Reset classes
+          cell.classList.remove('sunk', 'miss');
+
+          // Re-add ship class if it's a ship
+          if (board[row][col]) {
+            cell.classList.add('ship');
+          }
+
+          // Add hit/miss markers from enemy shots
+          if (myBoardHits[row][col] === 'hit') {
+            cell.classList.add('sunk');
+          } else if (myBoardHits[row][col] === 'miss') {
+            cell.classList.add('miss');
+          }
+        });
+
+        updateScores();
+      }
+
+      function updateScores() {
+        // Calculate my remaining ships
+        let myShipsRemaining = 0;
+        for (let i = 0; i < 5; i++) {
+          for (let j = 0; j < 5; j++) {
+            // Count ships that haven't been hit
+            if (board[i][j] && myBoardHits[i][j] !== 'hit') {
+              myShipsRemaining++;
+            }
+          }
+        }
+
+        // Calculate enemy ships sunk
+        let enemyShipsSunk = 0;
+        for (let i = 0; i < 5; i++) {
+          for (let j = 0; j < 5; j++) {
+            if (opponentBoard[i][j] === 'hit') {
+              enemyShipsSunk++;
+            }
+          }
+        }
+
+        // Update displays
+        const playerShipsEl = document.getElementById('playerShipsRemaining');
+        const enemyShipsEl = document.getElementById('enemyShipsSunk');
+
+        if (playerShipsEl) {
+          playerShipsEl.textContent = myShipsRemaining;
+          playerShipsEl.style.color =
+            myShipsRemaining <= 3 ? '#ff6b6b' : '#667eea';
+        }
+
+        if (enemyShipsEl) {
+          enemyShipsEl.textContent = enemyShipsSunk;
+          enemyShipsEl.style.color =
+            enemyShipsSunk >= 7 ? '#51cf66' : '#764ba2';
+        }
+      }
+
+      function updateTurnIndicator() {
+        const indicator = document.getElementById('turnIndicator');
+        if (!indicator) return;
+
+        if (currentTurn === myUserId) {
+          indicator.className = 'your-turn';
+          indicator.textContent =
+            '🎯 YOUR TURN - Click on enemy board to fire!';
+        } else {
+          indicator.className = 'opponent-turn';
+          indicator.textContent =
+            "⏳ OPPONENT'S TURN - Wait for them to fire...";
+        }
+      }
+
+      function toggleCell(row, col) {
+        // Prevent changes after confirmation
+        if (shipsConfirmed) {
+          log(
+            '⚠️ Ships already confirmed. Cannot modify placement.',
+            'warning',
+          );
+          return;
+        }
+
+        // If cell is already a ship, allow removal
+        if (board[row][col]) {
+          board[row][col] = false;
+          shipCount--;
+        } else {
+          // Check if we can add more ships
+          if (shipCount >= MAX_SHIPS) {
+            alert(`Maximum ${MAX_SHIPS} boats allowed!`);
+            log(`⚠️ Cannot place more than ${MAX_SHIPS} boats`, 'warning');
+            return;
+          }
+          board[row][col] = true;
+          shipCount++;
+        }
+        updateBoardUI();
+        updateShipCounter();
+        updateConfirmButton();
+      }
+
+      function updateBoardUI() {
+        const cells = document.querySelectorAll('#board .cell');
+        cells.forEach((cell) => {
+          const row = parseInt(cell.dataset.row);
+          const col = parseInt(cell.dataset.col);
+          if (board[row][col]) {
+            cell.classList.add('ship');
+          } else {
+            cell.classList.remove('ship');
+          }
+
+          // Disable pointer if ships are confirmed
+          if (shipsConfirmed) {
+            cell.style.cursor = 'not-allowed';
+          } else {
+            cell.style.cursor = 'pointer';
+          }
+        });
+      }
+
+      function updateShipCounter() {
+        shipCount = board.reduce(
+          (count, row) => count + row.filter((cell) => cell).length,
+          0,
+        );
+        const counter = document.getElementById('shipCounter');
+        if (counter) {
+          counter.textContent = `${shipCount} / ${MAX_SHIPS}`;
+          counter.style.color = shipCount === MAX_SHIPS ? '#51cf66' : '#667eea';
+        }
+      }
+
+      function updateConfirmButton() {
+        const confirmBtn = document.getElementById('confirmShipsBtn');
+        // Enable confirm button only if exactly 10 ships and not yet confirmed
+        if (shipCount === MAX_SHIPS && !shipsConfirmed) {
+          confirmBtn.disabled = false;
+        } else {
+          confirmBtn.disabled = true;
+        }
+      }
+
+      function confirmShips() {
+        if (!socket || !socket.connected) {
+          alert('Not connected to server');
+          return;
+        }
+
+        if (shipCount !== MAX_SHIPS) {
+          alert(
+            `Please place exactly ${MAX_SHIPS} boats (currently: ${shipCount})`,
+          );
+          log(
+            `⚠️ Need exactly ${MAX_SHIPS} boats, currently have ${shipCount}`,
+            'warning',
+          );
+          return;
+        }
+
+        if (shipsConfirmed) {
+          log('⚠️ Ships already confirmed', 'warning');
+          return;
+        }
+
+        shipsConfirmed = true;
+        log('✅ Ships confirmed! Sending to server...', 'success');
+        socket.emit('place_ships', { board: board });
+
+        // Disable the confirm button and random placement button
+        document.getElementById('confirmShipsBtn').disabled = true;
+        document.getElementById('placeShipsBtn').disabled = true;
+
+        // Update board to prevent further changes
+        updateBoardUI();
+      }
+
+      function log(message, type = 'info') {
+        const logs = document.getElementById('logs');
+        const timestamp = new Date().toLocaleTimeString();
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.textContent = `[${timestamp}] ${message}`;
+        logs.appendChild(entry);
+        logs.scrollTop = logs.scrollHeight;
+      }
+
+      function clearLogs() {
+        document.getElementById('logs').innerHTML = '';
+      }
+
+      function updateStatus(status, text) {
+        const statusEl = document.getElementById('connectionStatus');
+        statusEl.className = `status ${status}`;
+        statusEl.textContent = text;
+      }
+
+      function updateGameInfo(data) {
+        if (data.userId)
+          document.getElementById('userId').textContent = data.userId;
+        if (data.username)
+          document.getElementById('username').textContent = data.username;
+        if (data.gameId)
+          document.getElementById('gameId').textContent = data.gameId;
+        if (data.gameStatus)
+          document.getElementById('gameStatus').textContent = data.gameStatus;
+      }
+
+      function connect() {
+        const serverUrl = document.getElementById('serverUrl').value;
+        const token = document.getElementById('authToken').value.trim();
+
         if (!token) {
           alert('Please enter a JWT token');
           return;
         }
 
-        socket = io('http://localhost:3000', {
-          auth: { token },
+        log('Attempting to connect...', 'info');
+
+        socket = io(serverUrl, {
+          auth: {
+            token: token,
+          },
           transports: ['websocket', 'polling'],
         });
 
-        socket.on('connect', () => log('✅ Connected to server: ' + socket.id));
-        socket.on('disconnect', () => log('❌ Disconnected from server'));
-        socket.on('game_ready', (gameId) => {
-          currentGameId = gameId || currentGameId;
-          log('🎮 Game is ready! Game ID: ' + currentGameId);
-        });
-        socket.on('error', (message) => {
-          log('❌ ' + message);
-        });
-      });
+        // Connection events
+        socket.on('connect', () => {
+          log('✅ Connected to server', 'success');
+          updateStatus('connected', '🟢 Connected');
+          document.getElementById('connectBtn').disabled = true;
+          document.getElementById('disconnectBtn').disabled = false;
+          document.getElementById('joinGameBtn').disabled = false;
+          document.getElementById('userInfo').style.display = 'block';
 
-      // Join game
-      document.getElementById('joinGameBtn').addEventListener('click', () => {
+          // Try to decode token to show user info
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            myUserId = payload.id;
+            updateGameInfo({
+              userId: payload.id,
+              username: payload.username,
+              gameStatus: 'Not in game',
+            });
+          } catch (e) {
+            log('Could not decode token', 'warning');
+          }
+        });
+
+        socket.on('disconnect', () => {
+          log('❌ Disconnected from server', 'error');
+          updateStatus('disconnected', '⚫ Disconnected');
+          document.getElementById('connectBtn').disabled = false;
+          document.getElementById('disconnectBtn').disabled = true;
+          document.getElementById('joinGameBtn').disabled = true;
+          document.getElementById('placeShipsBtn').disabled = true;
+          document.getElementById('confirmShipsBtn').disabled = true;
+          document.getElementById('leaveGameBtn').disabled = true;
+        });
+
+        socket.on('connect_error', (error) => {
+          log(`❌ Connection error: ${error.message}`, 'error');
+          updateStatus('disconnected', '⚫ Connection Failed');
+        });
+
+        // Game events
+        socket.on('error', (message) => {
+          log(`⚠️ Error: ${message}`, 'error');
+          alert(`Error: ${message}`);
+        });
+
+        socket.on('waiting_for_opponent', (data) => {
+          log(`⏳ Waiting for opponent... Game ID: ${data.gameId}`, 'warning');
+          updateStatus('waiting', '🟡 Waiting for opponent');
+          updateGameInfo({
+            gameId: data.gameId,
+            gameStatus: 'Waiting for opponent',
+          });
+        });
+
+        socket.on('game_ready', (data) => {
+          log(`✅ Game ready! Game ID: ${data.gameId}`, 'success');
+          log(`Players: ${JSON.stringify(data.players)}`, 'info');
+          updateStatus('ready', '🔵 Game Ready');
+          updateGameInfo({
+            gameId: data.gameId,
+            gameStatus: 'Ready - Place your ships',
+          });
+
+          gamePhase = 'placement';
+          document.getElementById('placeShipsBtn').disabled = false;
+          document.getElementById('leaveGameBtn').disabled = false;
+
+          // Show the board and ship info when game is ready
+          document.getElementById('placementSection').style.display = 'block';
+          document.getElementById('battleSection').style.display = 'none';
+
+          // Reset ship confirmation state for new game
+          shipsConfirmed = false;
+          board = Array(5)
+            .fill(null)
+            .map(() => Array(5).fill(false));
+          opponentBoard = Array(5)
+            .fill(null)
+            .map(() => Array(5).fill(null));
+          myBoardHits = Array(5)
+            .fill(null)
+            .map(() => Array(5).fill(null));
+          shipCount = 0;
+          updateBoardUI();
+          updateShipCounter();
+          updateConfirmButton();
+        });
+
+        socket.on('game_start', (data) => {
+          log(`🚀 Game started! Current turn: ${data.currentTurn}`, 'success');
+          updateGameInfo({
+            gameStatus: 'In Progress',
+          });
+          updateStatus('ready', '🟢 Game In Progress');
+
+          gamePhase = 'battle';
+          currentTurn = data.currentTurn;
+
+          // Hide placement section, show battle section
+          document.getElementById('placementSection').style.display = 'none';
+          document.getElementById('battleSection').style.display = 'block';
+
+          // Initialize both boards
+          initializePlayerBoard();
+          initializeOpponentBoard();
+          updateTurnIndicator();
+          updateScores();
+        });
+
+        socket.on('fired', (data) => {
+          const { x, y, hit, playerId, opponentId } = data;
+
+          if (playerId === myUserId) {
+            // I fired at the opponent
+            opponentBoard[x][y] = hit ? 'hit' : 'miss';
+            log(
+              `🎯 You fired at (${x}, ${y}) - ${hit ? 'HIT! 💥' : 'Miss 💦'}`,
+              hit ? 'success' : 'info',
+            );
+            updateOpponentBoard();
+          } else {
+            // Opponent fired at me
+            myBoardHits[x][y] = hit ? 'hit' : 'miss';
+            log(
+              `💣 Opponent fired at (${x}, ${y}) - ${hit ? 'They HIT your ship! 💥' : 'They missed 💦'}`,
+              hit ? 'warning' : 'info',
+            );
+            updatePlayerBoardWithHits();
+          }
+        });
+
+        socket.on('turn_change', (data) => {
+          currentTurn = data.currentTurn;
+          log(
+            `🔄 Turn changed to: ${currentTurn === myUserId ? 'YOU' : 'OPPONENT'}`,
+            'info',
+          );
+          updateTurnIndicator();
+        });
+
+        socket.on('finish_game', (data) => {
+          gamePhase = 'finished';
+          const won = data.winnerId === myUserId;
+
+          log(
+            `🏁 Game finished! ${won ? 'YOU WON! 🎉' : 'You lost 😢'}`,
+            won ? 'success' : 'error',
+          );
+
+          updateGameInfo({
+            gameStatus: won ? '🏆 Victory!' : '💔 Defeat',
+          });
+
+          updateStatus(
+            'finished',
+            won ? '🏆 Game Finished - You Won!' : '💔 Game Finished - You Lost',
+          );
+
+          // Enable leave button
+          document.getElementById('leaveGameBtn').disabled = false;
+
+          // Show result in turn indicator
+          const indicator = document.getElementById('turnIndicator');
+          if (indicator) {
+            indicator.className = won ? 'your-turn' : 'opponent-turn';
+            indicator.textContent = won
+              ? '🎉 VICTORY! You sunk all enemy ships!'
+              : '💔 DEFEAT! All your ships were sunk!';
+          }
+
+          alert(
+            won ? '🎉 Congratulations! You won!' : '💔 Game Over - You lost!',
+          );
+        });
+
+        socket.on('player_left', (data) => {
+          log(`👋 ${data.message}`, 'warning');
+          resetGameUI();
+        });
+
+        // Generic event logger
+        socket.onAny((eventName, ...args) => {
+          log(
+            `📨 Event received: ${eventName} - ${JSON.stringify(args)}`,
+            'info',
+          );
+        });
+      }
+
+      function disconnect() {
+        if (socket) {
+          socket.disconnect();
+          socket = null;
+          log('Disconnected by user', 'info');
+        }
+      }
+
+      function leaveGame() {
         if (!socket || !socket.connected) {
-          alert('⚠️ Not connected!');
+          alert('Not connected to server');
           return;
         }
 
-        log('🟢 Sending join_game');
+        if (gamePhase === 'not_started') {
+          log('⚠️ Not in a game', 'warning');
+          return;
+        }
+
+        log('🚪 Leaving game...', 'info');
+        socket.emit('leave_game');
+
+        // Reset UI immediately
+        resetGameUI();
+      }
+
+      function resetGameUI() {
+        // Hide both game sections
+        document.getElementById('placementSection').style.display = 'none';
+        document.getElementById('battleSection').style.display = 'none';
+
+        // Reset game state
+        gamePhase = 'not_started';
+        shipsConfirmed = false;
+        board = Array(5)
+          .fill(null)
+          .map(() => Array(5).fill(false));
+        opponentBoard = Array(5)
+          .fill(null)
+          .map(() => Array(5).fill(null));
+        myBoardHits = Array(5)
+          .fill(null)
+          .map(() => Array(5).fill(null));
+        shipCount = 0;
+        currentTurn = null;
+
+        // Reset buttons
+        document.getElementById('placeShipsBtn').disabled = true;
+        document.getElementById('confirmShipsBtn').disabled = true;
+        document.getElementById('leaveGameBtn').disabled = true;
+
+        // Update status
+        updateStatus('connected', '🟢 Connected');
+        updateGameInfo({
+          gameId: '-',
+          gameStatus: 'Not in game',
+        });
+
+        log('✅ GUI reset - Ready to join a new game', 'success');
+      }
+
+      function joinGame() {
+        if (!socket || !socket.connected) {
+          alert('Not connected to server');
+          return;
+        }
+
+        log('🎮 Joining game queue...', 'info');
         socket.emit('join_game');
-      });
+      }
+
+      function placeShips() {
+        if (!socket || !socket.connected) {
+          alert('Not connected to server');
+          return;
+        }
+
+        if (shipsConfirmed) {
+          log('⚠️ Ships already confirmed. Cannot regenerate.', 'warning');
+          return;
+        }
+
+        // Check if any ships are placed
+        const hasShips = board.some((row) => row.some((cell) => cell));
+
+        if (hasShips) {
+          board = Array(5)
+            .fill(null)
+            .map(() => Array(5).fill(false));
+          shipCount = 0;
+          updateBoardUI();
+          log('🔄 Resetting board for new random ship placement', 'info');
+        }
+
+        // Generate exactly 10 random ships
+        board = Array(5)
+          .fill(null)
+          .map(() => Array(5).fill(false));
+        shipCount = 0;
+
+        const availableCells = [];
+        for (let i = 0; i < 5; i++) {
+          for (let j = 0; j < 5; j++) {
+            availableCells.push({ row: i, col: j });
+          }
+        }
+
+        // Shuffle and take first 10
+        for (let i = availableCells.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [availableCells[i], availableCells[j]] = [
+            availableCells[j],
+            availableCells[i],
+          ];
+        }
+
+        for (let i = 0; i < MAX_SHIPS; i++) {
+          const { row, col } = availableCells[i];
+          board[row][col] = true;
+          shipCount++;
+        }
+
+        updateBoardUI();
+        updateShipCounter();
+        updateConfirmButton();
+        log(
+          `🚢 Generated random ship placement (${MAX_SHIPS} boats) - Click "Confirm" to submit`,
+          'success',
+        );
+      }
+
+      // Initialize on load
+      window.onload = () => {
+        initializeBoard();
+      };
     </script>
   </body>
 </html>
