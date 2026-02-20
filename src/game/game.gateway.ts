@@ -8,6 +8,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { JwtPayload } from 'src/common/interfaces/jwtPayload';
+import { Mutex } from 'async-mutex';
 
 export interface AuthenticatedSocket extends Socket {
   data: {
@@ -51,6 +52,7 @@ enum GameEvents {
   cors: { origin: '*' },
 })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  constructor(private readonly jwtService: JwtService) {}
   @WebSocketServer()
   server: Server;
 
@@ -58,7 +60,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private games = new Map<string, GameInfo>(); // gameId -> GameInfo
   private waitingGameId: string | null = null;
 
-  constructor(private readonly jwtService: JwtService) {}
+  // locks
+  private connectionLocks = new Map<string, Mutex>(); // userId -> Mutex
+  private gameLocks = new Map<string, Mutex>(); // gameId -> Mutex
 
   private authenticateClient(client: AuthenticatedSocket): boolean {
     const authHeader = client.handshake.headers?.authorization;
@@ -91,77 +95,71 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return this.server.sockets.sockets.get(socketId) as AuthenticatedSocket;
   }
 
-  handleConnection(client: AuthenticatedSocket) {
+  private getConnectionLock(userId: string): Mutex {
+    if (!this.connectionLocks.has(userId)) {
+      this.connectionLocks.set(userId, new Mutex());
+    }
+    return this.connectionLocks.get(userId)!;
+  }
+
+  private getGameLock(gameId: string): Mutex {
+    if (!this.gameLocks.has(gameId)) {
+      this.gameLocks.set(gameId, new Mutex());
+    }
+    return this.gameLocks.get(gameId)!;
+  }
+
+  async handleConnection(client: AuthenticatedSocket) {
     if (!this.authenticateClient(client)) {
       return;
     }
 
     const payload = client.data.user;
+    const userLock = this.getConnectionLock(payload.id);
 
-    const oldSocketId = this.connectedUsers.get(payload.id);
-    if (oldSocketId && oldSocketId !== client.id) {
-      const oldSocket = this.getClientById(oldSocketId);
-      if (oldSocket) {
-        oldSocket.emit(
-          GameEvents.ERROR,
-          'You have been disconnected because of a new login.',
-        );
-        oldSocket.disconnect(true);
+    await userLock.runExclusive(async () => {
+      const oldSocketId = this.connectedUsers.get(payload.id);
+      if (oldSocketId && oldSocketId !== client.id) {
+        const oldSocket = this.getClientById(oldSocketId);
+        if (oldSocket) {
+          oldSocket.emit(
+            GameEvents.ERROR,
+            'You have been disconnected because of a new login.',
+          );
+          await new Promise<void>((resolve) => {
+            oldSocket.disconnect(true);
+            setTimeout(resolve, 100);
+          });
+        }
       }
-    }
 
-    this.connectedUsers.set(payload.id, client.id);
-    console.log('User connected:', payload.username);
+      this.connectedUsers.set(payload.id, client.id);
+      console.log('User connected:', payload.username);
+    });
   }
 
   async handleDisconnect(client: AuthenticatedSocket) {
     const user = client.data.user;
     if (!user) return;
 
-    this.connectedUsers.delete(user.id);
-    console.log('User disconnected:', user.username);
+    const userLock = this.getConnectionLock(user.id);
 
-    const gameId = client.data.gameId;
-    if (gameId) {
-      await this.handlePlayerLeaveGame(gameId, user.id);
-    }
-  }
-
-  private async handlePlayerLeaveGame(gameId: string, userId: string) {
-    const game = this.games.get(gameId);
-    if (!game) return;
-
-    const otherPlayers = game.players.filter((p) => p.userId !== userId);
-    for (const player of otherPlayers) {
-      const clientId = this.connectedUsers.get(player.userId);
-      if (!clientId) return;
-      const socket = this.getClientById(clientId);
-      if (socket) {
-        socket.emit(GameEvents.PLAYER_LEFT, {
-          message: 'Your opponent has left the game',
-        });
-        await socket.leave(gameId);
-        socket.data.gameId = undefined;
+    await userLock.runExclusive(async () => {
+      const currentSocketId = this.connectedUsers.get(user.id);
+      if (currentSocketId === client.id) {
+        this.connectedUsers.delete(user.id);
+        console.log('User disconnected:', user.username);
       }
-    }
 
-    this.games.delete(gameId);
-
-    if (this.waitingGameId === gameId) {
-      this.waitingGameId = null;
-    }
-
-    const player = game.players.find((p) => p.userId === userId);
-    if (player) {
-      const clientId = this.connectedUsers.get(player.userId);
-      if (clientId) {
-        const socket = this.getClientById(clientId);
-        if (socket) {
-          await socket.leave(gameId);
-          socket.data.gameId = undefined;
-        }
+      const gameId = client.data.gameId;
+      if (gameId) {
+        await this.handlePlayerLeaveGame(gameId, user.id);
       }
-    }
+
+      if (!this.connectedUsers.has(user.id)) {
+        this.connectionLocks.delete(user.id);
+      }
+    });
   }
 
   @SubscribeMessage(GameEvents.JOIN_GAME)
@@ -190,7 +188,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
 
         game.status = 'ready';
-        await client.join(gameId);
+        this.waitingGameId = null;
         client.data.gameId = gameId;
 
         // Notify both players
@@ -199,7 +197,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           players: game.players.map((p) => ({ userId: p.userId })),
         });
 
-        this.waitingGameId = null;
+        const gameLock = this.getGameLock(gameId);
+        const release = await gameLock.acquire();
+        try {
+          await client.join(gameId);
+        } finally {
+          release();
+        }
       }
     } else {
       const gameId = this.generateGameId();
@@ -220,16 +224,71 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.games.set(gameId, newGame);
       this.waitingGameId = gameId;
 
-      await client.join(gameId);
       client.data.gameId = gameId;
 
       client.emit('waiting_for_opponent', {
         gameId,
         message: 'Waiting for another player to join...',
       });
+      await client.join(gameId);
     }
   }
 
+  @SubscribeMessage(GameEvents.LEAVE_GAME)
+  async handleLeaveGame(client: AuthenticatedSocket) {
+    const user = client.data.user;
+    const gameId = client.data.gameId;
+
+    if (!gameId) {
+      client.emit(GameEvents.ERROR, 'You are not in a game');
+      return;
+    }
+
+    await this.handlePlayerLeaveGame(gameId, user.id);
+  }
+
+  private async handlePlayerLeaveGame(gameId: string, userId: string) {
+    const game = this.games.get(gameId);
+    if (!game) return;
+
+    const otherPlayers = game.players.filter((p) => p.userId !== userId);
+    for (const player of otherPlayers) {
+      const clientId = this.connectedUsers.get(player.userId);
+      if (!clientId) return;
+      const socket = this.getClientById(clientId);
+      if (socket) {
+        socket.emit(GameEvents.PLAYER_LEFT, {
+          message: 'Your opponent has left the game',
+        });
+        await socket.leave(gameId);
+        socket.data.gameId = undefined;
+      }
+    }
+
+    const gameLock = this.getGameLock(gameId);
+    const release = await gameLock.acquire();
+    try {
+      this.games.delete(gameId);
+    } finally {
+      release();
+    }
+
+    if (this.waitingGameId === gameId) {
+      this.waitingGameId = null;
+    }
+
+    const player = game.players.find((p) => p.userId === userId);
+    if (player) {
+      const clientId = this.connectedUsers.get(player.userId);
+      if (clientId) {
+        const socket = this.getClientById(clientId);
+        if (socket) {
+          await socket.leave(gameId);
+          socket.data.gameId = undefined;
+        }
+      }
+    }
+  }
   @SubscribeMessage(GameEvents.PLACE_SHIPS)
   handlePlaceShips(
     client: AuthenticatedSocket,
@@ -362,18 +421,5 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(gameId).emit(GameEvents.TURN_CHANGE, {
       currentTurn: opponentPlayer.userId,
     });
-  }
-
-  @SubscribeMessage(GameEvents.LEAVE_GAME)
-  async handleLeaveGame(client: AuthenticatedSocket) {
-    const user = client.data.user;
-    const gameId = client.data.gameId;
-
-    if (!gameId) {
-      client.emit(GameEvents.ERROR, 'You are not in a game');
-      return;
-    }
-
-    await this.handlePlayerLeaveGame(gameId, user.id);
   }
 }

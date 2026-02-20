@@ -26,6 +26,8 @@ export class AuthService {
     }
 
     const user = await this.usersService.create(email, username, password);
+
+    return { msg: 'user created successfully' };
   }
 
   async login(loginDto: LoginDto) {
