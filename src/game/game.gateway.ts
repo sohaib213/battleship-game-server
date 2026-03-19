@@ -191,12 +191,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.waitingGameId = null;
         client.data.gameId = gameId;
 
-        // Notify both players
-        this.server.to(gameId).emit(GameEvents.GAME_READY, {
-          gameId,
-          players: game.players.map((p) => ({ userId: p.userId })),
-        });
-
         const gameLock = this.getGameLock(gameId);
         const release = await gameLock.acquire();
         try {
@@ -204,6 +198,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         } finally {
           release();
         }
+        // Notify both players
+        this.server.to(gameId).emit(GameEvents.GAME_READY, {
+          gameId,
+          players: game.players.map((p) => ({ userId: p.userId })),
+        });
+        console.log('games => ', this.games);
       }
     } else {
       const gameId = this.generateGameId();
